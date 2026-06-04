@@ -10,18 +10,19 @@ import os,sys
 from datetime import datetime, timedelta
 import pandas as pd
 
-from sap_script import job, grouping, script_name
+from sap_script import job, grouping, script_name, test_mode_supported
 
 
 # region processor
 class Processor(Thread):
-    def __init__(self, sysnr:int, sesnr:int, id:int, own_running:Event, count_job, controller):
+    def __init__(self, sysnr:int, sesnr:int, id:int, own_running:Event, count_job, test_mode, controller):
         super().__init__(target=self.thread_controller, daemon=True)
         self.sysnr = int(sysnr)
         self.sesnr = int(sesnr)
         self.id = id
         self.own_running = own_running
-        self.count_job = count_job
+        self.count_job = count_job # controller callback 
+        self.test_mode = test_mode # controller callback 
         self.controller = controller
         
         self.q = controller.q
@@ -82,10 +83,8 @@ class Processor(Thread):
             
             try:##############  DO THE JOB  ###############################
                 a=self.q.get(block=False)
-                self.q.task_done()
             except Empty:
                 break
-            self.count_job()
 
             self.outxl = pd.DataFrame()
             self.outxl.index = a.index
@@ -93,23 +92,28 @@ class Processor(Thread):
             self.text_update(f'Starting job ')
             script_result = False
             color = 'black'
+            result = False
             try:
                 result = job(self, df=a)####
                 if result == 'postpone':
+                    self.q.task_done()
                     self.q.put(a)
                     self.text_update('Postponing\n')
                     script_result =' --postponing-- '
                     continue
-                if result:
+                if result == True:
                     script_result = ' --OK-- '
                     color = 'green'
                 else:  
                     script_result = ' --ERR-- '
                     color = 'red'
+                    result = False
             except Exception:
                 script_result = ' --ERR-- '
                 color = 'red'
             #job result
+            self.q.task_done()
+            self.count_job(result)
             message = ''
             try:
                 message = self.session.findById("wnd[0]/sbar").Text
@@ -141,7 +145,7 @@ class Processor(Thread):
 
 # region Controller
 class Controller:
-    def __init__(self, view, script, grouping=None):
+    def __init__(self, view, script, grouping=None, test_mode_supported=False):
         self.view = view
         self.script = script
         self.grouping = grouping
@@ -154,6 +158,7 @@ class Controller:
         self.q = Queue()
         self.report_q = Queue()
         self.jobs_done = 0
+        self.jobs_done_error = 0
         self.lock = Lock()
         self.state='not_started'
         self.processors = dict()
@@ -166,6 +171,8 @@ class Controller:
         self.items_per_minute=0
         self.ticks_time_measure = 0
         self.final_q_size = None
+        self.test_mode = False
+        self.test_mode_supported = test_mode_supported
 
         #view callbacks
         self.view.controller_start_work = self.start_work
@@ -179,6 +186,9 @@ class Controller:
         self.view.controller_tick_work = self.tick_work
         self.view.controller_processor_running_togle = self.processor_running_togle
         self.view.controller_ask_exit = self.ask_exit
+        self.view.controller_get_test_mode = self.get_test_mode
+        self.view.controller_set_test_mode = self.set_test_mode
+        self.view.controller_test_mode_supported = self.get_test_mode_supported
 
         self.readFile()
         self.sap_connect()
@@ -269,9 +279,20 @@ class Controller:
         else:
             return (False, 'Select session(s)')
     
-    def count_job(self):
+    def count_job(self, result):
         with self.lock:
             self.jobs_done += 1
+            if not result:
+                self.jobs_done_error += 1
+
+    def get_test_mode(self):
+        return self.test_mode
+    
+    def set_test_mode(self, test_mode):
+        self.test_mode = test_mode
+
+    def get_test_mode_supported(self):
+        return self.test_mode_supported
 
     def start_work(self, session_keys):
         if not self.check_selected_sessions(session_keys)[0]:
@@ -282,8 +303,16 @@ class Controller:
         for id, ses in enumerate(session_keys):
             sysnr, sesnr = ses.split('.')
             self.procesosors_running[id] = Event()
-            self.procesosors_running[id].set()
-            self.processors[id] = (Processor(sysnr=sysnr, sesnr=sesnr, id=id, own_running=self.procesosors_running[id], count_job=self.count_job, controller=self))
+            # test mode - start only first worker
+            if id == 0:
+                self.procesosors_running[id].set()
+            else:
+                if self.test_mode:
+                    self.procesosors_running[id].clear()
+                else:
+                    self.procesosors_running[id].set()
+            self.processors[id] = (Processor(sysnr=sysnr, sesnr=sesnr, id=id, own_running=self.procesosors_running[id],\
+                                              count_job=self.count_job, test_mode=self.get_test_mode, controller=self))
         self.view.add_worker_text_fields(len(session_keys))
         self.start_time = datetime.now()
         self.view.tick_work()
@@ -355,7 +384,7 @@ class Controller:
         q_size = self.q.qsize() if self.final_q_size is None else self.final_q_size
         self.view.update_state(running_processors=running_processors, waiting_processors=waiting_processors, stopped_processors=stopped_processors, q_size=q_size,\
                                 initial_q_size=self.initial_q_size, jobs_done=self.jobs_done, remaining_time=self.remaining_time,\
-                                items_per_minute=self.items_per_minute, elapsed_time=self.elapsed_time, main_label=self.state )
+                                items_per_minute=self.items_per_minute, elapsed_time=self.elapsed_time, main_label=self.state, jobs_done_error=self.jobs_done_error )
 
         if self.state == 'stopped':
             self.state = 'finished'
@@ -440,6 +469,7 @@ class Controller:
     
     def get_state(self):
         return self.state
+    
     def get_connection(self):
         return self.connection
     
@@ -466,7 +496,7 @@ class Controller:
 
 
 
-# region View
+# region View chooser
 class View:
     def __init__(self, title):
         self.title = title
@@ -483,6 +513,10 @@ class View:
         self.controller_tick_work = None
         self.controller_processor_running_togle = None
         self.controller_ask_exit = None
+        self.controller_get_test_mode = None
+        self.controller_set_test_mode = None
+        self.controller_test_mode_supported = None
+
 
         #first window - session chooser
         self.start_sessions_chooser()
@@ -517,20 +551,25 @@ class View:
 
         #toolframe:
         #button
-        self.mainButton = tk.Button(self.toolframe, text='Start', command=self.start_button_action, padx=2, pady=2, width=10)
+        self.mainButton = tk.Button(self.toolframe, text='Start', command=lambda : self.start_button_action(False), padx=2, pady=2, width=10)
         self.mainButton.grid(row=1,column=0, padx=5, pady=5) #, sticky='W'
+        #button start in test mode
+        self.test_mode_button = tk.Button(self.toolframe, text='Start in Test Mode', command=lambda : self.start_button_action(True), padx=2, pady=2,\
+                                    state=tk.DISABLED)
+        self.test_mode_button.grid(row=1,column=1, padx=5, pady=5) #, sticky='W'
         #select all button
         self.selAllButton = tk.Button(self.toolframe, text='Select all', command=self.selall, padx=2, pady=2, width=10)
-        self.selAllButton.grid(row=1, column=1, sticky='W', padx=5, pady=5)
+        self.selAllButton.grid(row=1, column=2, sticky='W', padx=5, pady=5)
         #action on close          
         self.root.protocol('WM_DELETE_WINDOW', self.window_close)
-        
+    
     def start_scan_ticks(self):
         #schedule first tick
         self.scheduled_tick = self.root.after(200, self.tick_scan_sessions_view)
     
-    def start_button_action(self):
+    def start_button_action(self, test_mode=False):
         selectedses = [key for key, checkbox in self.session_buttons.items() if checkbox[1].get()]
+        self.controller_set_test_mode(test_mode)
         self.controller_start_work(selectedses)
 
     def selall(self):
@@ -578,8 +617,10 @@ class View:
             self.topLabelText.set(message)
             if state:
                 self.mainButton.config(state=tk.NORMAL)
+                self.test_mode_button.config(state=tk.NORMAL if self.controller_test_mode_supported() else tk.DISABLED)
             else:
                 self.mainButton.config(state=tk.DISABLED)
+                self.test_mode_button.config(state=tk.DISABLED)
         self.scheduled_tick = self.root.after(200, self.tick_scan_sessions_view)
 
     def show_modal(self, type='info', message='?'):
@@ -591,7 +632,8 @@ class View:
             return messagebox.askyesno('Octopus', message)
         elif type=='retrycancel':
             return messagebox.askretrycancel('Octopus', message)
-        
+
+    # region View work window
     def start_work_window(self):
         self.root.after_cancel(self.scheduled_tick)
         for widget in self.root.winfo_children():
@@ -643,7 +685,11 @@ class View:
         #always on top checkbox
         self.always_on_top_var = tk.BooleanVar(value=False)
         self.always_on_top_widget = tk.Checkbutton(proc_frame, text='Always on top', variable=self.always_on_top_var, command=lambda: self.root.attributes('-topmost', self.always_on_top_var.get()))
-        self.always_on_top_widget.grid(row=1, column=0, sticky='we', padx=2, pady=2)
+        self.always_on_top_widget.grid(row=1, column=0, sticky='w', padx=2, pady=2)
+        # test mode checkbox
+        self.test_mode_var = tk.BooleanVar(value=self.controller_get_test_mode())
+        self.test_mode_widget = tk.Checkbutton(proc_frame, text='Test Mode', variable=self.test_mode_var, command=lambda: self.controller_set_test_mode(self.test_mode_var.get()))
+        self.test_mode_widget.grid(row=2, column=0, sticky='w', padx=2, pady=2)
 
         #processors info
         proc_frame = tk.Frame(self.toolframe, borderwidth=6, relief=tk.RIDGE)
@@ -672,15 +718,24 @@ class View:
         label.grid(row=1, column=0, sticky='w')
         label = tk.Label(proc_frame, text='Jobs total', font=('',12))
         label.grid(row=2, column=0, sticky='w')
+
+        label = tk.Label(proc_frame, text='Jobs failed', font=('',12))
+        label.grid(row=3, column=0, sticky='w')
+
         self.jobs_done = tk.StringVar(value='0')
         self.jobs_remaining = tk.StringVar(value='0')
         self.jobs_all = tk.StringVar(value='0')
+        self.jobs_done_error = tk.StringVar(value='0')
+
         label = tk.Label(proc_frame, textvariable=self.jobs_done, font=('',12))
         label.grid(row=0, column=1, sticky='e')
         label = tk.Label(proc_frame, textvariable=self.jobs_remaining, font=('',12))
         label.grid(row=1, column=1, sticky='e')
         label = tk.Label(proc_frame, textvariable=self.jobs_all, font=('',12))
         label.grid(row=2, column=1, sticky='e')
+        self.label_jobs_err = tk.Label(proc_frame, textvariable=self.jobs_done_error, font=('',12))
+        self.label_jobs_err.grid(row=3, column=1, sticky='e')
+
         #done/remaining time
         proc_frame = tk.Frame(self.toolframe, borderwidth=6, relief=tk.RIDGE)
         proc_frame.grid(row=0, column=5, sticky='nsw')
@@ -791,7 +846,7 @@ class View:
                 window_texts.loc[idx, 'Text'] = l
         return window_texts
 
-    def update_state(self, running_processors, waiting_processors, stopped_processors, q_size, initial_q_size, jobs_done, remaining_time, items_per_minute, elapsed_time, main_label):
+    def update_state(self, running_processors, waiting_processors, stopped_processors, q_size, initial_q_size, jobs_done, remaining_time, items_per_minute, elapsed_time, main_label, jobs_done_error):
         self.running_procs.set(str(running_processors)) 
         self.waiting_procs.set(str(waiting_processors))
         self.stopped_procs.set(str(stopped_processors))
@@ -804,6 +859,8 @@ class View:
         if initial_q_size:
             self.progress_bar.config(value= jobs_done/initial_q_size * 100 -0.01 )
         self.topLabelText.set(main_label)
+        self.jobs_done_error.set(str(jobs_done_error))
+        self.label_jobs_err.config(foreground='red' if jobs_done <= jobs_done_error*2 and jobs_done_error > 0 else 'black')
     
     def work_done(self, status_text):
         self.topLabelText.set(status_text)
@@ -820,5 +877,5 @@ class View:
 # region main
 if __name__ == '__main__':
     view = View(script_name)
-    controller = Controller(view, script=job, grouping=grouping)
+    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported)
     view.root.mainloop()

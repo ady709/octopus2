@@ -5,6 +5,8 @@ grouping = None
 #grouping = ['Material', 'Plant']
 # Name of the script
 script_name = 'Example'
+# is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
+test_mode_supported = True
 ##########################################
 
 ### Useful function you may find very helpful, see example of use
@@ -92,8 +94,8 @@ def job(self, df):
         ### Do the task defined on the row
         task(self, idx, row)
 
-    ### Save task, but wait if test mode!
-    if not self.settings['Test Mode'].lower() in ('yes','y', 'true', 'ja', 'ano', '1'):
+    ### Save task, but pause if test mode!
+    if not self.test_mode():
         session.findById("wnd[0]/tbar[0]/btn[3]").press() # !!! In this example, it is not a save button but back button !!!
     else:
         self.pause('Paused and not saved, review, save manually, and continue...')
