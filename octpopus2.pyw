@@ -9,6 +9,7 @@ import pythoncom
 import os,sys
 from datetime import datetime, timedelta
 import pandas as pd
+import openpyxl
 
 from sap_script import job, grouping, script_name, test_mode_supported
 
@@ -359,6 +360,8 @@ class Controller:
                 running_processors += 1
                 live_processors += 1
             # dead processors not counted
+            if self.test_mode and proc_state == 'running':
+                proc_state = 'will_pause'
             view.continue_button_update(id, proc_state)
         
         if stopped_processors == live_processors or live_processors == 0:
@@ -594,7 +597,7 @@ class View:
             if not key in self.session_buttons.keys():
                 var = tk.BooleanVar()
                 # session_buttons['0.1'] = (tk.Checkbutton, variable_selected)
-                self.session_buttons[key] = (tk.Checkbutton(self.frame, text=f'{session.Info.SystemName} ({session.Info.Client}) {session.Info.Transaction}', variable=var), var)
+                self.session_buttons[key] = (tk.Checkbutton(self.frame, text='Session...', variable=var), var)
 
         to_remove = []
         for checkbox_key in self.session_buttons.keys():
@@ -604,8 +607,12 @@ class View:
         for checkbox_key in to_remove:
             self.session_buttons[checkbox_key][0].destroy()
             del(self.session_buttons[checkbox_key])
-        #place the session buttons
+        #sort the dict so that the buttons won't change position when transaction changes
+        self.session_buttons = dict(sorted(self.session_buttons.items()))
+        #place the session buttons, and first update it's text
         for r,checkbox_key in enumerate(self.session_buttons.keys()):
+            txt = f'{sessions[checkbox_key].Info.SystemName} ({sessions[checkbox_key].Info.SessionNumber} {sessions[checkbox_key].Info.Client}) {sessions[checkbox_key].Info.User} - {sessions[checkbox_key].Info.Transaction}'
+            self.session_buttons[checkbox_key][0].config(text = txt)
             self.session_buttons[checkbox_key][0].grid(row=r, column=0, sticky='w')
 
     def tick_scan_sessions_view(self):
@@ -772,8 +779,8 @@ class View:
             text_output.tag_config("black", foreground="black")
             continue_button = tk.Button(text_frame, width=1, state=tk.NORMAL, text='>', background='green', command= lambda id=i: self.controller_processor_running_togle(id))
             self.worker_continue_buttons[i] = continue_button
-            text_output.grid(row=1, column=0, pady=0, padx=0, sticky='nwes')
-            continue_button.grid(row=1, column=1, sticky='ens', pady=0)
+            text_output.grid(row=1, column=1, pady=0, padx=0, sticky='nwes')
+            continue_button.grid(row=1, column=0, sticky='ens', pady=0)
             text_frame.grid(row=i, column=0, sticky='we', pady=2, padx=2)
             self.worker_text_fields[i] = text_output
         self.root.eval('tk::PlaceWindow . center')
