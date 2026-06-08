@@ -1,11 +1,11 @@
 import pandas as pd
 
-# Gouping of items from input file #
+### Gouping of items from input file #
 grouping = None
 #grouping = ['Material', 'Plant']
-# Name of the script
+### Name of the script
 script_name = 'Example'
-# is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
+### is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
 test_mode_supported = True
 ##########################################
 
@@ -63,7 +63,7 @@ def job(self, df):
     #   then all rows of this job are processed and finally it is saved
     #
     # input file can also be accessed directly to reach some global information: self.input_file['sheet_name']
-    # sheet Settings of the input file is already transformed to dictionary self.settings, see the sap save for an example
+    # sheet Settings of the input file is already transformed to dictionary self.settings.
     # 
     # put your run-time messages to self.text_update(message, [color:black|red|green]) color is optional and black is default
     # put your output results to self.outxl[column]. first make sure the columns are there with NA value, see output_columns = ...
@@ -94,6 +94,21 @@ def job(self, df):
         ### Do the task defined on the row
         task(self, idx, row)
 
+    ### just an example of another sheets of the input file
+    # Sheet Settings automatically accessible in a dictionary self.settings
+    # if you know you have the sheets in your input, no need for catching the exceptions
+    try:
+        self.text_update (f"Settings example: {self.settings['Some Global Option']} ")
+    except Exception:
+        pass
+    # Other sheets accessible in self.input_file, which is a dictionary of dataframes
+    try:
+        self.text_update(f"Other sheet example: {self.input_file['Another_sheet'].loc[0,'A']} {self.input_file['Another_sheet'].loc[0,'B']} ")
+    except Exception:
+        pass
+
+    
+    #########################################
     ### Save task, but pause if test mode!
     if not self.test_mode():
         session.findById("wnd[0]/tbar[0]/btn[3]").press() # !!! In this example, it is not a save button but back button !!!

@@ -41,7 +41,7 @@ class Processor(Thread):
         try:
             self.settings = self.input_file['Settings'][['Setting','Value']].fillna('').set_index('Setting').to_dict()['Value']
         except Exception:
-            self.settings = {'Test Mode':'n'}
+            self.settings = {'na':'na'}
         self.start()
 
     def text_update(self, text_to_add, color='black'):
