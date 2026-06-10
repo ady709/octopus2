@@ -11,8 +11,15 @@ from datetime import datetime, timedelta
 import pandas as pd
 import openpyxl
 
-from sap_script import job, grouping, script_name, test_mode_supported
-
+from sap_script import job
+try: from sap_script import grouping
+except Exception: grouping = None
+try: from sap_script import script_name
+except Exception: script_name = 'Script'
+try: from sap_script import test_mode_supported
+except Exception: test_mode_supported=False
+try: from sap_script import non_text_input
+except Exception: non_text_input = []
 
 # region processor
 class Processor(Thread):
