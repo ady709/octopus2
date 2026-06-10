@@ -32,8 +32,6 @@ try: from sap_script import script_name
 except Exception: script_name = 'Script'
 try: from sap_script import test_mode_supported
 except Exception: test_mode_supported=False
-try: from sap_script import non_text_input
-except Exception: non_text_input = []
 
 # region processor
 class Processor(Thread):
@@ -167,11 +165,10 @@ class Processor(Thread):
 
 # region Controller
 class Controller:
-    def __init__(self, view, script, grouping=None, test_mode_supported=False, non_text_input=[]):
+    def __init__(self, view, script, grouping=None, test_mode_supported=False):
         self.view = view
         self.script = script
         self.grouping = grouping
-        self.non_text_input = non_text_input
         
         self.state = 'not_started' # 'not_started', 'started', 'paused', 'stopping', 'stopped', 'finished'
         self.connection = None
@@ -225,11 +222,8 @@ class Controller:
             f = os.path.split(p)[1]
             if f != '_internal':
                 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-            #remove non_text_input from column names which will be read as text
-            columns = pd.read_excel('input.xlsx', sheet_name='Input').columns.tolist()
-            strcols = dict([[col,'str'] for col in columns if not col in self.non_text_input])
             # read the input file
-            self.input_file = pd.read_excel('input.xlsx', sheet_name=None, dtype=strcols)
+            self.input_file = pd.read_excel('input.xlsx', sheet_name=None)
             self.input_file['Input'] = self.input_file['Input'].dropna(how='all').fillna('').reset_index()
             self.input_file['Input']['Script result'] = "Not started"
         except Exception:
@@ -910,5 +904,5 @@ class View:
 # region main
 if __name__ == '__main__':
     view = View(script_name)
-    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported, non_text_input=non_text_input)
+    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported)
     view.root.mainloop()

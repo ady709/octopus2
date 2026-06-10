@@ -8,8 +8,6 @@ grouping = None
 script_name = 'Example'
 ### is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
 test_mode_supported = True
-### input file columns that should not be read as text, list of column names or empty list
-non_text_input = ['Date','Number']
 ################################################################
 
 ### Useful function you may find very helpful, see example of use
@@ -164,8 +162,8 @@ def task(self, idx, row):
         self.text_update(f'Don\'t know what to get ?? ')
         #put the info to the output excel file
         self.outxl.loc[idx,'Value'] = '???'
-    #example of input that was not converted to text
-    self.text_update(f"Date is {row['Date']}, number is {row['Number']}; ")
+        #example of input that was not converted to text
+        self.text_update(f"Date is {row['Date']}, number is {row['Number']}; ")
     
     return
 
