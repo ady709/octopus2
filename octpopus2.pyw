@@ -1,17 +1,31 @@
+import os,sys
 import tkinter as tk
 from tkinter import messagebox, ttk
-from time import sleep, time
-import win32com.client
+import pythoncom
 from threading import Thread, Lock, Event
 from queue import Queue, Empty
-from time import sleep, strftime
-import pythoncom
-import os,sys
+from time import strftime
 from datetime import datetime, timedelta
-import pandas as pd
-import openpyxl
-
-from sap_script import job
+try: 
+    import win32com.client
+except Exception:
+    messagebox.showerror(title='Missing dependency', message='Install pywin32', detail='pip install pywin32', parent=None)
+    sys.exit()
+try: 
+    import pandas as pd
+except Exception:
+    messagebox.showerror(title='Missing dependency', message='Install pandas', detail='pip install pandas', parent=None)
+    sys.exit()
+try: 
+    import openpyxl
+except Exception:
+    messagebox.showerror(title='Missing dependency', message='Install openpyxl', detail='pip install openpyxl', parent=None)
+    sys.exit()
+#script imports
+try: from sap_script import job
+except Exception: 
+        messagebox.showerror(title='Check sap script', message='Function not found', detail='function job in file sap_script.py', parent=None)
+        sys.exit()
 try: from sap_script import grouping
 except Exception: grouping = None
 try: from sap_script import script_name
@@ -153,10 +167,11 @@ class Processor(Thread):
 
 # region Controller
 class Controller:
-    def __init__(self, view, script, grouping=None, test_mode_supported=False):
+    def __init__(self, view, script, grouping=None, test_mode_supported=False, non_text_input=[]):
         self.view = view
         self.script = script
         self.grouping = grouping
+        self.non_text_input = non_text_input
         
         self.state = 'not_started' # 'not_started', 'started', 'paused', 'stopping', 'stopped', 'finished'
         self.connection = None
@@ -210,7 +225,11 @@ class Controller:
             f = os.path.split(p)[1]
             if f != '_internal':
                 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-            self.input_file = pd.read_excel('input.xlsx', sheet_name=None, dtype='str')
+            #remove non_text_input from column names which will be read as text
+            columns = pd.read_excel('input.xlsx', sheet_name='Input').columns.tolist()
+            strcols = dict([[col,'str'] for col in columns if not col in self.non_text_input])
+            # read the input file
+            self.input_file = pd.read_excel('input.xlsx', sheet_name=None, dtype=strcols)
             self.input_file['Input'] = self.input_file['Input'].dropna(how='all').fillna('').reset_index()
             self.input_file['Input']['Script result'] = "Not started"
         except Exception:
@@ -891,5 +910,5 @@ class View:
 # region main
 if __name__ == '__main__':
     view = View(script_name)
-    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported)
+    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported, non_text_input=non_text_input)
     view.root.mainloop()

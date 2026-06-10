@@ -1,5 +1,6 @@
 import pandas as pd
 
+####### Control variables ########################################
 ### Gouping of items from input file #
 grouping = None
 #grouping = ['Material', 'Plant']
@@ -7,7 +8,9 @@ grouping = None
 script_name = 'Example'
 ### is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
 test_mode_supported = True
-##########################################
+### input file columns that should not be read as text, list of column names or empty list
+non_text_input = ['Date','Number']
+################################################################
 
 ### Useful function you may find very helpful, see example of use
 def find_in_table(session, table_id:str, column:int|str, text:str, from_beginning:bool = True) -> tuple:
@@ -78,7 +81,7 @@ def job(self, df):
     plnt = df.iloc[0]['Plant']
 
     #putting some info to the text output right in the beginning would be a good idea
-    self.text_update(f'{mat} {plnt} ')
+    self.text_update(f'{mat} {plnt}: ')
 
     ### Start the transaction
     session.findById("wnd[0]/tbar[0]/okcd").text = "/nmm03"
@@ -89,7 +92,7 @@ def job(self, df):
     session.findById("wnd[1]/usr/tblSAPLMGMMTC_VIEW").getAbsoluteRow(0).selected = True #<<< True (with capital T)
     session.findById("wnd[1]/tbar[0]/btn[0]").press()
 
-    ### Loop through rows of the job
+    ###################### Loop through rows of the job ###############################
     for idx, row in df.iterrows():
         ### Do the task defined on the row
         task(self, idx, row)
@@ -98,12 +101,12 @@ def job(self, df):
     # Sheet Settings automatically accessible in a dictionary self.settings
     # if you know you have the sheets in your input, no need for catching the exceptions
     try:
-        self.text_update (f"Settings example: {self.settings['Some Global Option']} ")
+        self.text_update (f"Settings example: {self.settings['Some Global Option']}; ")
     except Exception:
         pass
     # Other sheets accessible in self.input_file, which is a dictionary of dataframes
     try:
-        self.text_update(f"Other sheet example: {self.input_file['Another_sheet'].loc[0,'A']} {self.input_file['Another_sheet'].loc[0,'B']} ")
+        self.text_update(f"Other sheet example: {self.input_file['Another_sheet'].loc[0,'A']} {self.input_file['Another_sheet'].loc[0,'B']}; ")
     except Exception:
         pass
 
@@ -127,7 +130,7 @@ def task(self, idx, row):
         matgr = session.findById("wnd[0]/usr/tabsTABSPR1/tabpSP01/ssubTABFRA1:SAPLMGMM:2004/subSUB2:SAPLMGD1:2001/ctxtMARA-MATKL").text #members of sapgui are not case sensitive
         #put some info to text window so that you can see the progress. This will be also saved when leaving the program.
         #care about speces between the messages
-        self.text_update(f'Value of {get} is {matgr} ')
+        self.text_update(f'Value of {get} is {matgr}; ')
         #put the info to the output excel file
         self.outxl.loc[idx,'Value'] = matgr
     elif get == 'dismm':
@@ -137,7 +140,7 @@ def task(self, idx, row):
         dismm = session.findById("wnd[0]/usr/tabsTABSPR1/tabpSP12/ssubTABFRA1:SAPLMGMM:2000/subSUB3:SAPLMGD1:2482/ctxtMARC-DISMM").text 
         #put some info to text window so that you can see the progress. This will be also saved when leaving the program.
         #care about speces between the messages
-        self.text_update(f'Value of {get} is {dismm} ')
+        self.text_update(f'Value of {get} is {dismm}; ')
         #put the info to the output excel file
         self.outxl.loc[idx,'Value'] = dismm
     elif get == 'lang':
@@ -153,15 +156,16 @@ def task(self, idx, row):
             lang_text = '?'
         #put some info to text window so that you can see the progress. This will be also saved when leaving the program.
         #care about speces between the messages
-        self.text_update(f'{language} description is {lang_text} ')
+        self.text_update(f'{language} description is {lang_text}; ')
         #put the info to the output excel file
         self.outxl.loc[idx,'Value'] = lang_text   
         session.findById("wnd[0]/tbar[0]/btn[3]").press() 
-    
     else:
-        self.text_update(f'Don\'t know what to get ??')
+        self.text_update(f'Don\'t know what to get ?? ')
         #put the info to the output excel file
         self.outxl.loc[idx,'Value'] = '???'
+    #example of input that was not converted to text
+    self.text_update(f"Date is {row['Date']}, number is {row['Number']}; ")
     
     return
 
