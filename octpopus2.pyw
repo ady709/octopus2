@@ -6,6 +6,7 @@ from threading import Thread, Lock, Event
 from queue import Queue, Empty
 from time import strftime
 from datetime import datetime, timedelta
+import types
 try: 
     import win32com.client
 except Exception:
@@ -32,6 +33,8 @@ try: from sap_script import script_name
 except Exception: script_name = 'Script'
 try: from sap_script import test_mode_supported
 except Exception: test_mode_supported=False
+try: from sap_script import init_task
+except Exception: init_task=None
 
 # region processor
 class Processor(Thread):
@@ -165,11 +168,13 @@ class Processor(Thread):
 
 # region Controller
 class Controller:
-    def __init__(self, view, script, grouping=None, test_mode_supported=False):
+    def __init__(self, view, script, grouping=None, test_mode_supported=False, init_task=None):
         self.view = view
         self.script = script
         self.grouping = grouping
-        
+        self.test_mode_supported = test_mode_supported
+        self.init_task = init_task
+
         self.state = 'not_started' # 'not_started', 'started', 'paused', 'stopping', 'stopped', 'finished'
         self.connection = None
         self.sap_sessions = dict()
@@ -192,7 +197,6 @@ class Controller:
         self.ticks_time_measure = 0
         self.final_q_size = None
         self.test_mode = False
-        self.test_mode_supported = test_mode_supported
 
         #view callbacks
         self.view.controller_start_work = self.start_work
@@ -318,7 +322,11 @@ class Controller:
     def start_work(self, session_keys):
         if not self.check_selected_sessions(session_keys)[0]:
             return
-        #self.state = 'started'
+        #optional init task
+        if not self.init_task is None and type(self.init_task) == types.FunctionType:
+            self.view.start_init_task_window() 
+        self.init_task_process(self.sap_sessions[session_keys[0]])
+
         self.view.start_work_window()
         #make processors
         for id, ses in enumerate(session_keys):
@@ -337,7 +345,18 @@ class Controller:
         self.view.add_worker_text_fields(len(session_keys))
         self.start_time = datetime.now()
         self.view.tick_work()
-    
+
+    def init_task_process(self, session):
+        try:
+            result = self.init_task(self, session)
+            if not result:
+                raise Exception('Init task did not suceeded')
+        except Exception as e:
+            self.view.show_modal(type='error', message=str(e))
+            self.view.window_close()
+            sys.exit()
+
+
     def tick_work(self):
         if self.state == 'finished':
             return
@@ -660,6 +679,19 @@ class View:
         elif type=='retrycancel':
             return messagebox.askretrycancel('Octopus', message)
 
+    def start_init_task_window(self):
+        self.root.after_cancel(self.scheduled_tick)
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        #frame
+        self.mainframe = tk.Frame(self.root)
+        self.mainframe.pack(expand=True, fill='both')
+        self.mainframe.grid_columnconfigure(0, weight=1)
+        #label
+        self.topLabelText = tk.StringVar(value='Init task running...')
+        self.topLabel = tk.Label(self.mainframe, textvariable=self.topLabelText, font=('',12))
+        self.topLabel.grid(row=0, column=0, columnspan=3, sticky='nwes')   
+
     # region View work window
     def start_work_window(self):
         self.root.after_cancel(self.scheduled_tick)
@@ -792,7 +824,7 @@ class View:
     def add_worker_text_fields(self, amount):
         for i in range(amount):
             text_frame = tk.Frame(self.frame, borderwidth=4, relief=tk.RIDGE)
-            text_frame.grid_columnconfigure(0, weight=1)
+            text_frame.grid_columnconfigure(1, weight=1)
             text_output = tk.Text(text_frame, width=160, height=6, state=tk.DISABLED)
             text_output.tag_config("red", foreground="red")
             text_output.tag_config("green", foreground="green")
@@ -800,7 +832,7 @@ class View:
             continue_button = tk.Button(text_frame, width=1, state=tk.NORMAL, text='>', background='green', command= lambda id=i: self.controller_processor_running_togle(id))
             self.worker_continue_buttons[i] = continue_button
             text_output.grid(row=1, column=1, pady=0, padx=0, sticky='nwes')
-            continue_button.grid(row=1, column=0, sticky='ens', pady=0)
+            continue_button.grid(row=1, column=0, sticky='wns', pady=0)
             text_frame.grid(row=i, column=0, sticky='we', pady=2, padx=2)
             self.worker_text_fields[i] = text_output
         self.root.eval('tk::PlaceWindow . center')
@@ -904,5 +936,5 @@ class View:
 # region main
 if __name__ == '__main__':
     view = View(script_name)
-    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported)
+    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported, init_task=init_task)
     view.root.mainloop()

@@ -8,7 +8,21 @@ grouping = None
 script_name = 'Example'
 ### is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
 test_mode_supported = True
-################################################################
+#########################################################################################################################
+###### Optional function for task initialization. It runs in the main thread before the workers are launched.
+# If you get any data you want to use later in the workers, save them to self.any_variable_name_you_want (except those already used in the controller class ;) ).
+# Access the data in workers by self.controller.any_variable_name_you_want. Don't write into the variable from workers, or use with self.lock.
+# Have init_task = None if you do not want any init task.
+# (The purpose is for example to check some parameters in SU3 before processing the main task queue)
+# Return True if all is right and the main queue can be processed, otherwise return False
+###############################################################################################################################
+# init_task = None
+def init_task(self, session):
+    session.findById("wnd[0]/tbar[0]/okcd").text = "/nsu3"
+    session.findById("wnd[0]").sendVKey(0)
+    session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpDEFA").select()
+    self.sap_user_date_format = session.findById("wnd[0]/usr/tabsTABSTRIP1/tabpDEFA/ssubMAINAREA:SAPLSUID_MAINTENANCE:1105/cmbSUID_ST_NODE_DEFAULTS-DATFM").CurListBoxEntry.Value
+    return True
 
 ### Useful function you may find very helpful, see example of use
 def find_in_table(session, table_id:str, column:int|str, text:str, from_beginning:bool = True) -> tuple:
@@ -95,6 +109,7 @@ def job(self, df):
         ### Do the task defined on the row
         task(self, idx, row)
 
+    ############# Delete these examples from your real script
     ### just an example of another sheets of the input file
     # Sheet Settings automatically accessible in a dictionary self.settings
     # if you know you have the sheets in your input, no need for catching the exceptions
@@ -107,7 +122,12 @@ def job(self, df):
         self.text_update(f"Other sheet example: {self.input_file['Another_sheet'].loc[0,'A']} {self.input_file['Another_sheet'].loc[0,'B']}; ")
     except Exception:
         pass
-
+    # access variable saved during optional init_task
+    try:
+        self.text_update(f"Init task data: {self.controller.sap_user_date_format}; ")
+    except Exception:
+        pass
+    
     
     #########################################
     ### Save task, but pause if test mode!
