@@ -22,10 +22,27 @@ try:
 except Exception:
     messagebox.showerror(title='Missing dependency', message='Install openpyxl', detail='pip install openpyxl', parent=None)
     sys.exit()
+
 #script imports
+cwd = os.getcwd()
+cwd_folder = os.path.split(cwd)[1]
+this_file_path = os.path.dirname(os.path.abspath(__file__))
+this_file_folder = os.path.split(this_file_path)[1]
+#messagebox.showinfo('this file folder',message=this_file_folder, detail=this_file_path)
+if cwd_folder == 'system32':
+    os.chdir(this_file_path)
+    cwd = os.getcwd()
+if cwd != this_file_path and not this_file_folder == '_internal':
+    if not messagebox.askokcancel(title='Octopus', message='working in folder:', detail=cwd, parent=None):
+        sys.exit()
+
+# add cwd to path to import the script from
+if not cwd in sys.path and not this_file_folder == '_internal':
+    sys.path.insert(0,cwd)
+
 try: from sap_script import job
 except Exception: 
-        messagebox.showerror(title='Check sap script', message='Function not found', detail='function job in file sap_script.py', parent=None)
+        messagebox.showerror(title='Check sap script', message='Function not found', detail=os.getcwd(), parent=None)
         sys.exit()
 try: from sap_script import grouping
 except Exception: grouping = None
@@ -222,10 +239,6 @@ class Controller:
     #Read/Load the input file
     def readFile(self):
         try:
-            p = os.path.dirname(os.path.abspath(__file__))
-            f = os.path.split(p)[1]
-            if f != '_internal':
-                os.chdir(os.path.dirname(os.path.abspath(__file__)))
             # read the input file
             self.input_file = pd.read_excel('input.xlsx', sheet_name=None)
             self.input_file['Input'] = self.input_file['Input'].dropna(how='all').fillna('').reset_index()
