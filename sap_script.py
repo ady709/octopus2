@@ -182,7 +182,7 @@ def task(self, idx, row):
         self.text_update(f'Don\'t know what to get ?? ')
         #put the info to the output excel file
         self.outxl.loc[idx,'Value'] = '???'
-        #example of input that was not converted to text
+        #example of input that was or was not converted to text
         self.text_update(f"Date is {row['Date']}, number is {row['Number']}; ")
     
     return

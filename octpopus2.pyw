@@ -238,13 +238,43 @@ class Controller:
     
     #Read/Load the input file
     def readFile(self):
+        # first read sheet Settings of the input file and see if everything should be read as text
+        # Setting "Read all columns as text" yes|no
+        settings = None
         try:
-            # read the input file
-            self.input_file = pd.read_excel('input.xlsx', sheet_name=None)
+            settings = pd.read_excel('input.xlsx', sheet_name='Settings', dtype='str')
+        except PermissionError:
+            self.view.show_modal('error', 'Please close the file and run again')
+            self.view.exit()
+            sys.exit()
+        except FileExistsError:
+            self.view.show_modal('error', 'Please create file input.xlsx')
+            self.view.exit()
+            sys.exit()
+        except ValueError:
+            pass # sheet settings is not mandatory
+        except Exception:
+            self.view.show_modal('error', 'Input file Error.')
+            self.view.exit()
+            sys.exit()
+        # all as text?
+        all_as_text = False
+        if isinstance(settings, pd.DataFrame):
+            try:
+                if settings[settings['Setting']=='Read all columns as text'].iloc[0]['Value'].lower() in ('yes','y','1','true','ja','ano'):
+                    all_as_text = True
+            except Exception:
+                pass
+        # read the input file
+        try:
+            if all_as_text:
+                self.input_file = pd.read_excel('input.xlsx', sheet_name=None, dtype='str')
+            else:
+                self.input_file = pd.read_excel('input.xlsx', sheet_name=None)
             self.input_file['Input'] = self.input_file['Input'].dropna(how='all').fillna('').reset_index()
             self.input_file['Input']['Script result'] = "Not started"
         except Exception:
-            self.view.show_modal('error', 'Input file not found! Please create input.xlsx file in the same folder as this script and have it closed.')
+            self.view.show_modal('error', 'Input file error. Is there sheet "Input"?')
             self.view.exit()
             sys.exit()
         #grouping of items as specified in sap_script
@@ -338,7 +368,7 @@ class Controller:
         #optional init task
         if not self.init_task is None and type(self.init_task) == types.FunctionType:
             self.view.start_init_task_window() 
-        self.init_task_process(self.sap_sessions[session_keys[0]])
+            self.init_task_process(self.sap_sessions[session_keys[0]])
 
         self.view.start_work_window()
         #make processors
