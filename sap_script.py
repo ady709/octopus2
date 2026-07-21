@@ -1,13 +1,20 @@
 import pandas as pd
 
 ####### Control variables ########################################
-### Gouping of items from input file #
-grouping = None
-#grouping = ['Material', 'Plant']
-### Name of the script
-script_name = 'Example'
-### is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
-test_mode_supported = True
+script_settings = {
+    ### Gouping of items from input file #
+    'grouping' : None,
+    #grouping : ['Material', 'Plant'],
+    ### Name of the script
+    'script_name' : 'Example',
+    ### is test mode treated? (If True, make condition before saving, do not save if self.test_mode() == True
+    'test_mode_supported' : True,
+    ### set this to true if you want to force the user to start in test mode
+    'test_mode_start_forced' : False,
+    ### specify list of mandatory column names of the input file or set to None
+    'mandatory_columns' : ['Material','Plant','Get']
+}
+
 #########################################################################################################################
 ###### Optional function for task initialization. It runs in the main thread before the workers are launched.
 # If you get any data you want to use later in the workers, save them to self.any_variable_name_you_want (except those already used in the controller class ;) ).

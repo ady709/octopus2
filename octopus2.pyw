@@ -1,6 +1,6 @@
 import os,sys
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, filedialog
 import pythoncom
 from threading import Thread, Lock, Event
 from queue import Queue, Empty
@@ -23,7 +23,7 @@ except Exception:
     messagebox.showerror(title='Missing dependency', message='Install openpyxl', detail='pip install openpyxl', parent=None)
     sys.exit()
 
-#script imports
+#region script imports
 cwd = os.getcwd()
 cwd_folder = os.path.split(cwd)[1]
 this_file_path = os.path.dirname(os.path.abspath(__file__))
@@ -44,14 +44,26 @@ try: from sap_script import job
 except Exception: 
         messagebox.showerror(title='Check sap script', message='Function not found', detail=os.getcwd(), parent=None)
         sys.exit()
-try: from sap_script import grouping
-except Exception: grouping = None
-try: from sap_script import script_name
-except Exception: script_name = 'Script'
-try: from sap_script import test_mode_supported
-except Exception: test_mode_supported=False
+
 try: from sap_script import init_task
 except Exception: init_task=None
+
+try:
+    from sap_script import script_settings
+except Exception:
+    script_settings = {
+    'grouping' : None,
+    'script_name' : 'Script',
+    'test_mode_supported' : False,
+    'test_mode_start_forced' : False,
+    'mandatory_columns' : None
+    }
+if not 'grouping' in script_settings: script_settings['grouping'] = None
+if not 'script_name' in script_settings: script_settings['script_name'] = 'Script'
+if not 'test_mode_supported' in script_settings: script_settings['test_mode_supported'] = False
+if not 'test_mode_start_forced' in script_settings: script_settings['test_mode_start_forced'] = False
+if not 'mandatory_columns' in script_settings: script_settings['grouping'] = None
+# endregion
 
 # region processor
 class Processor(Thread):
@@ -185,11 +197,10 @@ class Processor(Thread):
 
 # region Controller
 class Controller:
-    def __init__(self, view, script, grouping=None, test_mode_supported=False, init_task=None):
+    def __init__(self, view, script, script_settings, init_task=None):
         self.view = view
         self.script = script
-        self.grouping = grouping
-        self.test_mode_supported = test_mode_supported
+        self.script_settings = script_settings
         self.init_task = init_task
 
         self.state = 'not_started' # 'not_started', 'started', 'paused', 'stopping', 'stopped', 'finished'
@@ -230,6 +241,7 @@ class Controller:
         self.view.controller_get_test_mode = self.get_test_mode
         self.view.controller_set_test_mode = self.set_test_mode
         self.view.controller_test_mode_supported = self.get_test_mode_supported
+        self.view.controller_test_mode_start_forced = self.get_test_mode_start_forced
 
         self.readFile()
         self.sap_connect()
@@ -238,11 +250,15 @@ class Controller:
     
     #Read/Load the input file
     def readFile(self):
+        file_name = 'input.xlsx'
+        if not os.path.isfile(file_name):
+            file_name = self.view.file_dialog(filetypes=[('Excel files','.xlsx')], initialdir=os.getcwd())
+
         # first read sheet Settings of the input file and see if everything should be read as text
         # Setting "Read all columns as text" yes|no
         settings = None
         try:
-            settings = pd.read_excel('input.xlsx', sheet_name='Settings', dtype='str')
+            settings = pd.read_excel(file_name, sheet_name='Settings', dtype='str')
         except PermissionError:
             self.view.show_modal('error', 'Please close the file and run again')
             self.view.exit()
@@ -265,20 +281,29 @@ class Controller:
                     all_as_text = True
             except Exception:
                 pass
+        
         # read the input file
         try:
             if all_as_text:
-                self.input_file = pd.read_excel('input.xlsx', sheet_name=None, dtype='str')
+                self.input_file = pd.read_excel(file_name, sheet_name=None, dtype='str')
             else:
-                self.input_file = pd.read_excel('input.xlsx', sheet_name=None)
+                self.input_file = pd.read_excel(file_name, sheet_name=None)
             self.input_file['Input'] = self.input_file['Input'].dropna(how='all').fillna('').reset_index()
             self.input_file['Input']['Script result'] = "Not started"
         except Exception:
             self.view.show_modal('error', 'Input file error. Is there sheet "Input"?')
             self.view.exit()
             sys.exit()
+        #check all mandatory columns are in the input
+        if self.script_settings['mandatory_columns']:
+            columns_input = self.input_file['Input'].columns.tolist()
+            if not all([c in columns_input for c in self.script_settings['mandatory_columns']]):
+                self.view.show_modal('error', 'Input file error. Mandatory columns not present!')
+                self.view.exit()
+                sys.exit()
         #grouping of items as specified in sap_script
-        if not self.grouping is None and len(self.grouping) > 0:
+        grouping = self.script_settings['grouping']
+        if not grouping is None and len(grouping) > 0:
             self.input_file['Input'] = self.input_file['Input'].set_index(grouping)
             for i in self.input_file['Input'].index.drop_duplicates():
                 job = self.input_file['Input'].loc[[i]].reset_index().copy()
@@ -360,8 +385,11 @@ class Controller:
         self.test_mode = test_mode
 
     def get_test_mode_supported(self):
-        return self.test_mode_supported
+        return self.script_settings['test_mode_supported']
 
+    def get_test_mode_start_forced(self):
+        return self.script_settings['test_mode_start_forced']
+    
     def start_work(self, session_keys):
         if not self.check_selected_sessions(session_keys)[0]:
             return
@@ -601,10 +629,12 @@ class View:
         self.controller_get_test_mode = None
         self.controller_set_test_mode = None
         self.controller_test_mode_supported = None
-
+        self.controller_test_mode_start_forced = None
 
         #first window - session chooser
         self.start_sessions_chooser()
+        ###
+
     def start_sessions_chooser(self):
         self.session_buttons = dict()
         #make window
@@ -705,7 +735,7 @@ class View:
             state, message = self.controller_check_selected_sessions([key for key, checkbox in self.session_buttons.items() if checkbox[1].get()])
             self.topLabelText.set(message)
             if state:
-                self.mainButton.config(state=tk.NORMAL)
+                self.mainButton.config(state=tk.NORMAL if not self.controller_test_mode_start_forced() else tk.DISABLED)
                 self.test_mode_button.config(state=tk.NORMAL if self.controller_test_mode_supported() else tk.DISABLED)
             else:
                 self.mainButton.config(state=tk.DISABLED)
@@ -721,6 +751,9 @@ class View:
             return messagebox.askyesno('Octopus', message)
         elif type=='retrycancel':
             return messagebox.askretrycancel('Octopus', message)
+
+    def file_dialog(self, **kwargs):
+        return filedialog.askopenfilename(**kwargs, parent=self.root)
 
     def start_init_task_window(self):
         self.root.after_cancel(self.scheduled_tick)
@@ -978,6 +1011,6 @@ class View:
 
 # region main
 if __name__ == '__main__':
-    view = View(script_name)
-    controller = Controller(view, script=job, grouping=grouping, test_mode_supported=test_mode_supported, init_task=init_task)
+    view = View(script_settings['script_name'])
+    controller = Controller(view, script=job, script_settings=script_settings, init_task=init_task)
     view.root.mainloop()
